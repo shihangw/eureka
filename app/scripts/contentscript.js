@@ -1,6 +1,8 @@
 'use strict';
 
 (function (){
+  // var MSG_KEY_SYNCBOOKMARK = 'eureka_bookmark_sync';
+
   function highlight(dom){
     var textDOMs = [], whitespace = /^\s*$/;
     (function getTextDOMs(dom){
@@ -29,11 +31,15 @@
     }
   });
 
+  // var port = chrome.runtime.connect({name: MSG_KEY_SYNCBOOKMARK});
+
   chrome.runtime.sendMessage({urls: urls}, function (response){
-    var bookmarkedUrls = response.bookmarkedUrls;
-    console.log(bookmarkedUrls);
-    bookmarkedUrls.forEach(function (url){
-      highlight(urlDOMMap[url]);
-    });
+    if (response && response.bookmarkedUrls) {
+      var bookmarkedUrls = response.bookmarkedUrls;
+      console.log(bookmarkedUrls);
+      bookmarkedUrls.forEach(function (url){
+        highlight(urlDOMMap[url]);
+      });
+    }
   });
 })();
