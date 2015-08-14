@@ -8,7 +8,7 @@ chrome.tabs.onUpdated.addListener(function (tabId){
   chrome.pageAction.show(tabId);
 });
 
-(function() {
+var requestHandlingStream = (function() {
   // var MSG_KEY_SYNCBOOKMARK = 'eureka_bookmark_sync';
 
   function collectBookmarkUrl(urlMap, node) {
@@ -50,25 +50,38 @@ chrome.tabs.onUpdated.addListener(function (tabId){
         observer.onCompleted();
       });
     });
+  }).do(function () {
+    console.log('Bookmark url map reloaded');
   });
 
-  function syncBookmarkedUrls() {
-    bookmarkUrlMapStream.subscribe(function (urlMap){
-      console.log('Loaded Bookmarks loaded');
-
-      chrome.runtime.onMessage.addListener(function (request, sender, sendResponse){
-        var bookmarkedUrls = request.urls.filter(function (url){
-          return urlMap[url];
-        });
-        sendResponse({bookmarkedUrls: bookmarkedUrls});
-      });
+  var bookmarkedUrlsRequestStream =
+  Rx.Observable.create(function (observer) {
+    chrome.runtime.onMessage.addListener(function (request, sender, sendResponse){
+      observer.onNext({
+        request: request,
+        sender:sender,
+        sendResponse:sendResponse});
     });
-  }
+  }).publish();
 
-  bookmarkUrlMapStream.subscribe(function (urlMap) {
-    console.log('Bookmark url map updated');
-    console.log(urlMap);
+  var requestHandlingStream =
+  bookmarkUrlMapStream.combineLatest(
+    bookmarkedUrlsRequestStream,
+    function (urlMap, requestBundle) {
+      var bookmarkedUrls = requestBundle.request.urls.filter(function (url){
+        return urlMap[url];
+      });
+      requestBundle.sendResponse({bookmarkedUrls: bookmarkedUrls});
+      var logging = 'Handling request from page [' + requestBundle.sender.tab.title + ']';
+      return logging;
+    });
+
+  requestHandlingStream.subscribe(function (logging) {
+    console.log(logging);
   });
 
   reloadBookmarkAlarmStream.connect();
+  bookmarkedUrlsRequestStream.connect();
+
+  return requestHandlingStream;
 })();
