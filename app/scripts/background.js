@@ -1,15 +1,27 @@
 'use strict';
 
-chrome.runtime.onInstalled.addListener(function (details){
+chrome.runtime.onInstalled.addListener(function (details) {
   console.log('previousVersion', details.previousVersion);
 });
 
-chrome.tabs.onUpdated.addListener(function (tabId){
+chrome.tabs.onUpdated.addListener(function (tabId) {
   chrome.pageAction.show(tabId);
 });
 
-var requestHandlingStream = (function() {
-  // var MSG_KEY_SYNCBOOKMARK = 'eureka_bookmark_sync';
+/* exported requestHandlingStream */
+var requestHandlingStream = (function () {
+
+  /**
+  Callback is of the same signature as the original event callback.
+  'this' will be the observer inside callback.
+  */
+  function observableFromEvent(event, callback) {
+    return Rx.Observable.create(function (observer) {
+      event.addListener(function () {
+        callback.apply(observer, arguments);
+      });
+    });
+  }
 
   function collectBookmarkUrl(urlMap, node) {
     if (node) {
@@ -25,25 +37,24 @@ var requestHandlingStream = (function() {
     }
   }
 
+  var NAME_ALARM_RELOAD_BOOKMARK = 'NAME_ALARM_RELOAD_BOOKMARK';
+  chrome.alarms.create(NAME_ALARM_RELOAD_BOOKMARK, {
+    delayInMinutes: 1,
+    periodInMinutes: 1
+  });
+
   var reloadBookmarkAlarmStream =
-  Rx.Observable.create(function (observer) { 
-    var NAME_ALARM_RELOAD_BOOKMARK = 'NAME_ALARM_RELOAD_BOOKMARK';
-    chrome.alarms.create(NAME_ALARM_RELOAD_BOOKMARK, {
-      delayInMinutes: 1,
-      periodInMinutes: 1
-    });
-    chrome.alarms.onAlarm.addListener(function (alarm){
-      if (alarm.name === NAME_ALARM_RELOAD_BOOKMARK) {
-        observer.onNext(Date.now());
-      }
-    });
+  observableFromEvent(chrome.alarms.onAlarm, function (alarm) {
+    if (alarm.name === NAME_ALARM_RELOAD_BOOKMARK) {
+      this.onNext(Date.now());
+    }
   }).startWith(Date.now())
-  .publish();
+  .publish().refCount();
 
   var bookmarkUrlMapStream =
   reloadBookmarkAlarmStream.flatMap(function () {
     return Rx.Observable.create(function (observer) {
-      chrome.bookmarks.getTree(function (nodes){
+      chrome.bookmarks.getTree(function (nodes) {
         var urlMap = {};
         collectBookmarkUrl(urlMap, nodes[0]);
         observer.onNext(urlMap);
@@ -55,14 +66,13 @@ var requestHandlingStream = (function() {
   });
 
   var bookmarkedUrlsRequestStream =
-  Rx.Observable.create(function (observer) {
-    chrome.runtime.onMessage.addListener(function (request, sender, sendResponse){
-      observer.onNext({
-        request: request,
-        sender:sender,
-        sendResponse:sendResponse});
+  observableFromEvent(chrome.runtime.onMessage, function (request, sender, sendResponse) {
+    this.onNext({
+      request: request,
+      sender:sender,
+      sendResponse:sendResponse
     });
-  }).publish();
+  }).publish().refCount();
 
   var requestHandlingStream =
   bookmarkUrlMapStream.combineLatest(
@@ -76,12 +86,9 @@ var requestHandlingStream = (function() {
       return logging;
     });
 
-  requestHandlingStream.subscribe(function (logging) {
-    console.log(logging);
-  });
-
-  reloadBookmarkAlarmStream.connect();
-  bookmarkedUrlsRequestStream.connect();
-
   return requestHandlingStream;
 })();
+
+requestHandlingStream.subscribe(function (logging) {
+  console.log(logging);
+});

@@ -7,7 +7,7 @@
   "curly": true,
   "eqeqeq": true,
   "immed": true,
-  "indent": 2,
+  "indent": false,
   "jquery": true,
   "latedef": true,
   "newcap": true,
@@ -20,6 +20,7 @@
   "trailing": true,
   "smarttabs": true,
   "globals" : {
-    "chrome": true
+    "chrome": true,
+    "Rx": true
   }
 }
