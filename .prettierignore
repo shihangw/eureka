@@ -1,0 +1,16 @@
+# Dependencies
+node_modules
+bower_components
+
+# Build outputs
+dist
+build
+
+# Vendor files
+app/scripts/vendor
+
+# Test files
+test/bower_components
+
+# Git
+.git
