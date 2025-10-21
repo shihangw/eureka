@@ -1,94 +1,89 @@
-'use strict';
+/**
+ * Background service worker for Eureka extension
+ * Manages bookmark synchronization and message handling
+ */
 
-chrome.runtime.onInstalled.addListener(function (details) {
-  console.log('previousVersion', details.previousVersion);
+// In-memory cache of bookmark URLs
+let bookmarkUrlMap = {};
+
+// Initialize extension
+chrome.runtime.onInstalled.addListener((details) => {
+  console.log('Extension installed, previousVersion:', details.previousVersion);
+  loadBookmarks();
 });
 
-chrome.tabs.onUpdated.addListener(function (tabId) {
-  chrome.pageAction.show(tabId);
+// Show action icon on all tabs
+chrome.tabs.onUpdated.addListener((tabId) => {
+  chrome.action.show(tabId);
 });
 
-/* exported requestHandlingStream */
-var requestHandlingStream = (function () {
+/**
+ * Recursively collects all bookmark URLs from the bookmark tree
+ * @param {Object} urlMap - Map to store URL -> bookmark ID
+ * @param {Object} node - Current bookmark tree node
+ */
+function collectBookmarkUrl(urlMap, node) {
+  if (!node) return;
 
-  /**
-  Callback is of the same signature as the original event callback.
-  'this' will be the observer inside callback.
-  */
-  function observableFromEvent(event, callback) {
-    return Rx.Observable.create(function (observer) {
-      event.addListener(function () {
-        callback.apply(observer, arguments);
-      });
-    });
+  if (node.url) {
+    urlMap[node.url] = node.id;
   }
 
-  function collectBookmarkUrl(urlMap, node) {
-    if (node) {
-      if (node.url) {
-        urlMap[node.url] = node.id;
-      }
-      var children = node.children;
-      if (children) {
-        for (var i = 0; i < children.length; i++) {
-          collectBookmarkUrl(urlMap, children[i]);
-        }
-      }
+  if (node.children) {
+    for (const child of node.children) {
+      collectBookmarkUrl(urlMap, child);
     }
   }
+}
 
-  var NAME_ALARM_RELOAD_BOOKMARK = 'NAME_ALARM_RELOAD_BOOKMARK';
-  chrome.alarms.create(NAME_ALARM_RELOAD_BOOKMARK, {
-    delayInMinutes: 1,
-    periodInMinutes: 1
-  });
+/**
+ * Loads all bookmarks and caches them in memory
+ */
+async function loadBookmarks() {
+  try {
+    const nodes = await chrome.bookmarks.getTree();
+    const urlMap = {};
+    collectBookmarkUrl(urlMap, nodes[0]);
+    bookmarkUrlMap = urlMap;
+    console.log('Bookmark URL map reloaded:', Object.keys(bookmarkUrlMap).length, 'bookmarks');
+  } catch (error) {
+    console.error('Error loading bookmarks:', error);
+  }
+}
 
-  var reloadBookmarkAlarmStream =
-  observableFromEvent(chrome.alarms.onAlarm, function (alarm) {
-    if (alarm.name === NAME_ALARM_RELOAD_BOOKMARK) {
-      this.onNext(Date.now());
-    }
-  }).startWith(Date.now())
-  .publish().refCount();
+// Set up periodic bookmark reload (every minute)
+const ALARM_NAME = 'reload-bookmarks';
 
-  var bookmarkUrlMapStream =
-  reloadBookmarkAlarmStream.flatMap(function () {
-    return Rx.Observable.create(function (observer) {
-      chrome.bookmarks.getTree(function (nodes) {
-        var urlMap = {};
-        collectBookmarkUrl(urlMap, nodes[0]);
-        observer.onNext(urlMap);
-        observer.onCompleted();
-      });
-    });
-  }).do(function () {
-    console.log('Bookmark url map reloaded');
-  });
-
-  var bookmarkedUrlsRequestStream =
-  observableFromEvent(chrome.runtime.onMessage, function (request, sender, sendResponse) {
-    this.onNext({
-      request: request,
-      sender:sender,
-      sendResponse:sendResponse
-    });
-  }).publish().refCount();
-
-  var requestHandlingStream =
-  bookmarkUrlMapStream.combineLatest(
-    bookmarkedUrlsRequestStream,
-    function (urlMap, requestBundle) {
-      var bookmarkedUrls = requestBundle.request.urls.filter(function (url){
-        return urlMap[url];
-      });
-      requestBundle.sendResponse({bookmarkedUrls: bookmarkedUrls});
-      var logging = 'Handling request from page [' + requestBundle.sender.tab.title + ']';
-      return logging;
-    });
-
-  return requestHandlingStream;
-})();
-
-requestHandlingStream.subscribe(function (logging) {
-  console.log(logging);
+chrome.alarms.create(ALARM_NAME, {
+  delayInMinutes: 1,
+  periodInMinutes: 1,
 });
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === ALARM_NAME) {
+    loadBookmarks();
+  }
+});
+
+/**
+ * Handle messages from content scripts
+ * Returns which URLs from the provided list are bookmarked
+ */
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.urls && Array.isArray(request.urls)) {
+    const bookmarkedUrls = request.urls.filter((url) => bookmarkUrlMap[url]);
+
+    const tabTitle = sender.tab?.title || 'Unknown';
+    console.log(
+      `Handling request from page [${tabTitle}]: ${bookmarkedUrls.length}/${request.urls.length} URLs are bookmarked`
+    );
+
+    sendResponse({ bookmarkedUrls });
+  }
+
+  // Return true to indicate async response (though we're responding synchronously here)
+  return true;
+});
+
+// Initial bookmark load
+loadBookmarks();
