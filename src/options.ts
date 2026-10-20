@@ -4,18 +4,14 @@
  * user across devices.
  */
 
-(async () => {
-  'use strict';
+import { HIGHLIGHT_STYLE_KEY, readHighlightStyle } from './shared';
 
-  /** Highlight style used when the user has not picked one yet. */
-  const DEFAULT_HIGHLIGHT_STYLE = 'yellow';
+async function initOptions(): Promise<void> {
+  const radios = document.querySelectorAll<HTMLInputElement>('input[name="highlight-style"]');
+  const status = document.getElementById('save-status')!;
 
-  const radios = document.querySelectorAll('input[name="highlight-style"]');
-  const status = document.getElementById('save-status');
-
-  const { highlightStyle = DEFAULT_HIGHLIGHT_STYLE } =
-    await chrome.storage.sync.get('highlightStyle');
-  const selected = document.querySelector(
+  const highlightStyle = await readHighlightStyle();
+  const selected = document.querySelector<HTMLInputElement>(
     `input[name="highlight-style"][value="${highlightStyle}"]`
   );
   if (selected) {
@@ -24,15 +20,17 @@
 
   for (const radio of radios) {
     radio.addEventListener('change', () => {
-      const saving = chrome.storage.sync.set({ highlightStyle: radio.value });
-      saving
+      chrome.storage.sync
+        .set({ [HIGHLIGHT_STYLE_KEY]: radio.value })
         .then(() => {
           status.textContent = 'Saved';
         })
-        .catch((error) => {
+        .catch((error: unknown) => {
           status.textContent = 'Could not save preference';
           console.error('Eureka: failed to save highlight style:', error);
         });
     });
   }
-})();
+}
+
+void initOptions();

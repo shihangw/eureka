@@ -39,26 +39,59 @@ const BOOKMARK_TREE = [
 
 function loadBackground({ bookmarkTree = BOOKMARK_TREE } = {}) {
   const { chrome, state } = createChrome({ bookmarkTree });
-  const context = loadScript('../../app/scripts/background.js', { chrome });
+  const context = loadScript('../../dist/scripts/background.js', { chrome });
   return { chrome, state, context };
 }
 
-test('collectBookmarkUrls gathers every URL in a bookmark tree, recursively', () => {
-  const { context } = loadBackground();
-  const urls = new Set();
-  context.collectBookmarkUrls(urls, BOOKMARK_TREE[0]);
-  assert.deepEqual([...urls].sort(), [
-    'https://example.com/',
-    'https://github.com/',
-    'https://news.ycombinator.com/',
-  ]);
+test('caches every URL in a bookmark tree, recursively', async () => {
+  const { chrome } = loadBackground();
+  await settle();
+
+  let response;
+  chrome.runtime.onMessage.emit(
+    {
+      urls: [
+        'https://github.com/',
+        'https://news.ycombinator.com/',
+        'https://example.com/',
+        'https://not-bookmarked.example/',
+      ],
+    },
+    {},
+    (payload) => {
+      response = payload;
+    }
+  )[0];
+
+  await settle();
+  assert.deepEqual(plain(response), {
+    bookmarkedUrls: [
+      'https://github.com/',
+      'https://news.ycombinator.com/',
+      'https://example.com/',
+    ],
+  });
 });
 
-test('collectBookmarkUrls ignores folders without URLs', () => {
-  const { context } = loadBackground();
-  const urls = new Set();
-  context.collectBookmarkUrls(urls, { id: '1', title: 'Empty folder', children: [] });
-  assert.equal(urls.size, 0);
+test('ignores folders without URLs', async () => {
+  const { chrome } = loadBackground({
+    bookmarkTree: [
+      {
+        id: '0',
+        title: '',
+        children: [{ id: '1', title: 'Empty folder', children: [] }],
+      },
+    ],
+  });
+  await settle();
+
+  let response;
+  chrome.runtime.onMessage.emit({ type: 'getBookmarkCount' }, {}, (payload) => {
+    response = payload;
+  })[0];
+
+  await settle();
+  assert.deepEqual(plain(response), { count: 0 });
 });
 
 test('loads the bookmark cache when the service worker starts', async () => {

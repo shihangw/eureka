@@ -44,7 +44,7 @@ function loadContent({ links, bookmarkedUrls = [], highlightStyle, sendMessageEr
   };
 
   const document = createDocument({ links });
-  const context = loadScript('../../app/scripts/contentscript.js', {
+  const context = loadScript('../../dist/scripts/contentscript.js', {
     chrome,
     document,
     ...NodeConstants,

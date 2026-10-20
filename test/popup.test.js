@@ -34,7 +34,7 @@ function loadPopup({ respond }) {
   const document = createPageDocument({
     elementsById: { 'bookmark-count': countElement, 'open-options': optionsButton },
   });
-  const context = loadScript('../../app/scripts/popup.js', { chrome, document });
+  const context = loadScript('../../dist/scripts/popup.js', { chrome, document });
   return { state, countElement, optionsButton, context };
 }
 

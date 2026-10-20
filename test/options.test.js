@@ -45,7 +45,7 @@ function loadOptions({ stored = {}, setError } = {}) {
     elementsById: { 'save-status': status },
     radios,
   });
-  const context = loadScript('../../app/scripts/options.js', { chrome, document });
+  const context = loadScript('../../dist/scripts/options.js', { chrome, document });
   const radio = (style) => radios.find((candidate) => candidate.value === style);
   return { state, radios, radio, status, context };
 }

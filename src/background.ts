@@ -7,23 +7,23 @@
  * there is no polling.
  */
 
-/** @type {Set<string>} URL of every bookmark in the browser. */
-let bookmarkUrls = new Set();
+import { isCountRequest, isLookupRequest, type CountResponse, type LookupResponse } from './shared';
+
+/** URL of every bookmark in the browser. */
+let bookmarkUrls = new Set<string>();
 
 /**
  * Resolves once the current bookmark cache has finished loading. A freshly
  * woken service worker answers messages only after this resolves, so callers
  * never see a stale or empty cache.
- * @type {Promise<void>}
  */
-let cacheLoaded = refreshBookmarkCache();
+let cacheLoaded: Promise<void> = refreshBookmarkCache();
 
-/**
- * Adds the URL of every bookmark in a bookmark subtree to the set.
- * @param {Set<string>} urls - Set that receives the bookmark URLs.
- * @param {chrome.bookmarks.BookmarkTreeNode} node - Current bookmark tree node.
- */
-function collectBookmarkUrls(urls, node) {
+/** Adds the URL of every bookmark in a bookmark subtree to the set. */
+function collectBookmarkUrls(
+  urls: Set<string>,
+  node: chrome.bookmarks.BookmarkTreeNode | undefined
+): void {
   if (!node) return;
 
   if (node.url) {
@@ -35,14 +35,11 @@ function collectBookmarkUrls(urls, node) {
   }
 }
 
-/**
- * Reloads the bookmark cache from the browser.
- * @returns {Promise<void>}
- */
-async function refreshBookmarkCache() {
+/** Reloads the bookmark cache from the browser. */
+async function refreshBookmarkCache(): Promise<void> {
   try {
     const [root] = await chrome.bookmarks.getTree();
-    const urls = new Set();
+    const urls = new Set<string>();
     collectBookmarkUrls(urls, root);
     bookmarkUrls = urls;
     console.log(`Eureka: loaded ${bookmarkUrls.size} bookmark URLs`);
@@ -59,7 +56,7 @@ chrome.runtime.onInstalled.addListener((details) => {
 });
 
 // Refresh the cache when bookmarks change instead of polling on a timer.
-const bookmarkEvents = [
+const bookmarkEvents: Array<{ addListener(callback: () => void): void }> = [
   chrome.bookmarks.onCreated,
   chrome.bookmarks.onRemoved,
   chrome.bookmarks.onChanged,
@@ -79,20 +76,24 @@ for (const bookmarkEvent of bookmarkEvents) {
  * Returns `true` for handled requests to keep the message channel open for
  * the asynchronous response.
  */
-chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
-  if (Array.isArray(request?.urls)) {
-    cacheLoaded.then(() => {
-      const bookmarkedUrls = request.urls.filter((url) => bookmarkUrls.has(url));
-      console.log(`Eureka: ${bookmarkedUrls.length}/${request.urls.length} links are bookmarked`);
-      sendResponse({ bookmarkedUrls });
-    });
-    return true;
-  }
+chrome.runtime.onMessage.addListener(
+  (request: unknown, _sender, sendResponse: (response: LookupResponse | CountResponse) => void) => {
+    if (isLookupRequest(request)) {
+      void cacheLoaded.then(() => {
+        const bookmarkedUrls = request.urls.filter((url) => bookmarkUrls.has(url));
+        console.log(`Eureka: ${bookmarkedUrls.length}/${request.urls.length} links are bookmarked`);
+        sendResponse({ bookmarkedUrls });
+      });
+      return true;
+    }
 
-  if (request?.type === 'getBookmarkCount') {
-    cacheLoaded.then(() => {
-      sendResponse({ count: bookmarkUrls.size });
-    });
-    return true;
+    if (isCountRequest(request)) {
+      void cacheLoaded.then(() => {
+        sendResponse({ count: bookmarkUrls.size });
+      });
+      return true;
+    }
+
+    return undefined;
   }
-});
+);
