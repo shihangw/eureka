@@ -1,89 +1,98 @@
 /**
- * Background service worker for Eureka extension
- * Manages bookmark synchronization and message handling
+ * Background service worker for Eureka.
+ *
+ * Keeps an in-memory cache of every bookmark URL in the browser and answers
+ * lookup requests from content scripts and extension pages. The cache is
+ * refreshed when the service worker starts and whenever bookmarks change;
+ * there is no polling.
  */
 
-// In-memory cache of bookmark URLs
-let bookmarkUrlMap = {};
-
-// Initialize extension
-chrome.runtime.onInstalled.addListener((details) => {
-  console.log('Extension installed, previousVersion:', details.previousVersion);
-  loadBookmarks();
-});
-
-// Show action icon on all tabs
-chrome.tabs.onUpdated.addListener((tabId) => {
-  chrome.action.show(tabId);
-});
+/** @type {Set<string>} URL of every bookmark in the browser. */
+let bookmarkUrls = new Set();
 
 /**
- * Recursively collects all bookmark URLs from the bookmark tree
- * @param {Object} urlMap - Map to store URL -> bookmark ID
- * @param {Object} node - Current bookmark tree node
+ * Resolves once the current bookmark cache has finished loading. A freshly
+ * woken service worker answers messages only after this resolves, so callers
+ * never see a stale or empty cache.
+ * @type {Promise<void>}
  */
-function collectBookmarkUrl(urlMap, node) {
+let cacheLoaded = refreshBookmarkCache();
+
+/**
+ * Adds the URL of every bookmark in a bookmark subtree to the set.
+ * @param {Set<string>} urls - Set that receives the bookmark URLs.
+ * @param {chrome.bookmarks.BookmarkTreeNode} node - Current bookmark tree node.
+ */
+function collectBookmarkUrls(urls, node) {
   if (!node) return;
 
   if (node.url) {
-    urlMap[node.url] = node.id;
+    urls.add(node.url);
   }
 
-  if (node.children) {
-    for (const child of node.children) {
-      collectBookmarkUrl(urlMap, child);
-    }
+  for (const child of node.children ?? []) {
+    collectBookmarkUrls(urls, child);
   }
 }
 
 /**
- * Loads all bookmarks and caches them in memory
+ * Reloads the bookmark cache from the browser.
+ * @returns {Promise<void>}
  */
-async function loadBookmarks() {
+async function refreshBookmarkCache() {
   try {
-    const nodes = await chrome.bookmarks.getTree();
-    const urlMap = {};
-    collectBookmarkUrl(urlMap, nodes[0]);
-    bookmarkUrlMap = urlMap;
-    console.log('Bookmark URL map reloaded:', Object.keys(bookmarkUrlMap).length, 'bookmarks');
+    const [root] = await chrome.bookmarks.getTree();
+    const urls = new Set();
+    collectBookmarkUrls(urls, root);
+    bookmarkUrls = urls;
+    console.log(`Eureka: loaded ${bookmarkUrls.size} bookmark URLs`);
   } catch (error) {
-    console.error('Error loading bookmarks:', error);
+    console.error('Eureka: failed to load bookmarks:', error);
   }
 }
 
-// Set up periodic bookmark reload (every minute)
-const ALARM_NAME = 'reload-bookmarks';
-
-chrome.alarms.create(ALARM_NAME, {
-  delayInMinutes: 1,
-  periodInMinutes: 1,
+chrome.runtime.onInstalled.addListener((details) => {
+  console.log(
+    `Eureka: extension ${details.reason} (previous version: ${details.previousVersion ?? 'none'})`
+  );
+  cacheLoaded = refreshBookmarkCache();
 });
 
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === ALARM_NAME) {
-    loadBookmarks();
-  }
-});
+// Refresh the cache when bookmarks change instead of polling on a timer.
+const bookmarkEvents = [
+  chrome.bookmarks.onCreated,
+  chrome.bookmarks.onRemoved,
+  chrome.bookmarks.onChanged,
+  chrome.bookmarks.onMoved,
+  chrome.bookmarks.onChildrenReordered,
+  chrome.bookmarks.onImportEnded,
+];
+
+for (const bookmarkEvent of bookmarkEvents) {
+  bookmarkEvent.addListener(() => {
+    cacheLoaded = refreshBookmarkCache();
+  });
+}
 
 /**
- * Handle messages from content scripts
- * Returns which URLs from the provided list are bookmarked
+ * Answers messages from content scripts and extension pages.
+ * Returns `true` for handled requests to keep the message channel open for
+ * the asynchronous response.
  */
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.urls && Array.isArray(request.urls)) {
-    const bookmarkedUrls = request.urls.filter((url) => bookmarkUrlMap[url]);
-
-    const tabTitle = sender.tab?.title || 'Unknown';
-    console.log(
-      `Handling request from page [${tabTitle}]: ${bookmarkedUrls.length}/${request.urls.length} URLs are bookmarked`
-    );
-
-    sendResponse({ bookmarkedUrls });
+chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  if (Array.isArray(request?.urls)) {
+    cacheLoaded.then(() => {
+      const bookmarkedUrls = request.urls.filter((url) => bookmarkUrls.has(url));
+      console.log(`Eureka: ${bookmarkedUrls.length}/${request.urls.length} links are bookmarked`);
+      sendResponse({ bookmarkedUrls });
+    });
+    return true;
   }
 
-  // Return true to indicate async response (though we're responding synchronously here)
-  return true;
+  if (request?.type === 'getBookmarkCount') {
+    cacheLoaded.then(() => {
+      sendResponse({ count: bookmarkUrls.size });
+    });
+    return true;
+  }
 });
-
-// Initial bookmark load
-loadBookmarks();

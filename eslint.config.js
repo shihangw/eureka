@@ -5,12 +5,11 @@ export default [
   js.configs.recommended,
   {
     languageOptions: {
-      ecmaVersion: 2022,
+      ecmaVersion: 'latest',
       sourceType: 'module',
       globals: {
         ...globals.browser,
         ...globals.webextensions,
-        chrome: 'readonly',
       },
     },
     rules: {
@@ -21,12 +20,14 @@ export default [
     },
   },
   {
-    ignores: [
-      'app/scripts/vendor/**',
-      'app/scripts/chromereload.js',
-      'dist/**',
-      'node_modules/**',
-      'test/**',
-    ],
+    files: ['test/**/*.js'],
+    languageOptions: {
+      globals: {
+        ...globals.node,
+      },
+    },
+  },
+  {
+    ignores: ['node_modules/**'],
   },
 ];

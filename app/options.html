@@ -1,24 +1,20 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
-    <!-- build:css styles/vendor.css -->
-    <!-- bower:css -->
-    <!-- endbower -->
-    <!-- endbuild -->
-    <!-- build:css styles/main.css -->
+    <meta charset="utf-8" />
     <link href="styles/main.css" rel="stylesheet" />
-    <!-- endbuild -->
   </head>
   <body>
-    <h1>'Allo, 'Allo!</h1>
-
-    <!-- build:js scripts/vendor.js -->
-    <!-- bower:js -->
-    <!-- endbower -->
-    <!-- endbuild -->
-
-    <!-- build:js scripts/options.js -->
+    <h1>Eureka options</h1>
+    <fieldset>
+      <legend>Highlight style</legend>
+      <label
+        ><input type="radio" name="highlight-style" value="yellow" checked /> Yellow marker</label
+      >
+      <label><input type="radio" name="highlight-style" value="underline" /> Underline</label>
+      <label><input type="radio" name="highlight-style" value="glow" /> Glow</label>
+    </fieldset>
+    <p id="save-status" role="status"></p>
     <script src="scripts/options.js"></script>
-    <!-- endbuild -->
   </body>
 </html>

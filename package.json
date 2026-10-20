@@ -1,26 +1,26 @@
 {
   "name": "eureka-highlight-your-bookmarks",
-  "version": "0.0.3",
+  "version": "0.1.0",
   "description": "A modern Chrome extension that highlights your bookmarked links",
   "type": "module",
   "private": true,
   "scripts": {
-    "lint": "eslint app/scripts/**/*.js",
-    "lint:fix": "eslint app/scripts/**/*.js --fix",
-    "format": "prettier --write \"app/**/*.{js,json,css,html}\"",
-    "format:check": "prettier --check \"app/**/*.{js,json,css,html}\"",
-    "test": "echo \"No tests yet\" && exit 0"
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "node --test"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
     "eslint": "^9.0.0",
-    "eslint-config-prettier": "^9.1.0",
-    "globals": "^15.0.0",
+    "eslint-config-prettier": "^10.0.0",
+    "globals": "^17.0.0",
     "prettier": "^3.2.0"
   },
   "engines": {
-    "node": ">=18.0.0",
-    "npm": ">=9.0.0"
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
   },
   "keywords": [
     "chrome-extension",

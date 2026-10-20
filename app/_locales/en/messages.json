@@ -1,10 +1,10 @@
 {
   "appName": {
-    "message": "Eruka - Highlight Your Bookmarks",
+    "message": "Eureka - Highlight Your Bookmarks",
     "description": "The name of the application"
   },
   "appDescription": {
-    "message": "Eureka highlight links your have bookmarked. Very handy when your are googling something you have bookmarked.",
+    "message": "Eureka highlights links you have already bookmarked, right on the page. Very handy when you're searching for something you've saved.",
     "description": "The description of the application"
   }
 }
