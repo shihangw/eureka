@@ -171,3 +171,41 @@ export function createDocument({ links = [] } = {}) {
  * The Node global the content script reads text node types from.
  */
 export const NodeConstants = { Node: { TEXT_NODE, ELEMENT_NODE } };
+
+/**
+ * Creates a fake radio input that records listeners and can fire them.
+ * @param {string} value
+ * @param {boolean} [checked]
+ */
+export function createRadio(value, checked = false) {
+  const radio = createElement('input', {
+    attributes: { type: 'radio', name: 'highlight-style', value },
+    props: { value, checked },
+  });
+  radio.dispatch = (type) => {
+    for (const entry of radio.listeners) {
+      if (entry.type === type) {
+        entry.listener({ type, target: radio });
+      }
+    }
+  };
+  return radio;
+}
+
+/**
+ * Creates a fake `document` for the popup and options pages.
+ * @param {object} [options]
+ * @param {Record<string, object>} [options.elementsById] Elements for getElementById.
+ * @param {Array} [options.radios] Highlight-style radios for the options page.
+ */
+export function createPageDocument({ elementsById = {}, radios = [] } = {}) {
+  const radioSelector = 'input[name="highlight-style"]';
+  return {
+    getElementById: (id) => elementsById[id] ?? null,
+    querySelectorAll: (selector) => (selector === radioSelector ? radios : []),
+    querySelector: (selector) => {
+      const match = /^input\[name="highlight-style"\]\[value="(.*)"\]$/.exec(selector);
+      return match ? (radios.find((radio) => radio.value === match[1]) ?? null) : null;
+    },
+  };
+}

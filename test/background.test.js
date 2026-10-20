@@ -111,6 +111,30 @@ test('responds with the number of cached bookmarks', async () => {
   assert.deepEqual(plain(response), { count: 3 });
 });
 
+test('counts a URL bookmarked more than once as a single bookmark', async () => {
+  const { chrome } = loadBackground({
+    bookmarkTree: [
+      {
+        id: '0',
+        title: '',
+        children: [
+          { id: '1', title: 'GitHub', url: 'https://github.com/' },
+          { id: '2', title: 'GitHub again', url: 'https://github.com/' },
+          { id: '3', title: 'Example', url: 'https://example.com/' },
+        ],
+      },
+    ],
+  });
+  await settle();
+
+  let response;
+  chrome.runtime.onMessage.emit({ type: 'getBookmarkCount' }, {}, (payload) => {
+    response = payload;
+  })[0];
+
+  await settle();
+  assert.deepEqual(plain(response), { count: 2 });
+});
 test('reloads the cache when the extension is installed or updated', async () => {
   const { chrome, state } = loadBackground();
   await settle();
