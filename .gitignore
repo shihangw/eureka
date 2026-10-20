@@ -5,6 +5,10 @@ node_modules/
 dist/
 build/
 
+# Playwright output
+test-results/
+playwright-report/
+
 # Tooling cache
 .eslintcache
 

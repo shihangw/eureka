@@ -29,7 +29,7 @@ export default [
     },
   },
   {
-    files: ['test/**/*.js', 'scripts/**/*.mjs'],
+    files: ['test/**/*.js', 'test/**/*.mjs', 'scripts/**/*.mjs', 'playwright.config.mjs'],
     languageOptions: {
       globals: {
         ...globals.node,

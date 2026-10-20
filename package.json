@@ -12,7 +12,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "npm run test:unit",
-    "test:unit": "npm run build && node --test --test-concurrency=2 \"test/*.test.js\""
+    "test:unit": "npm run build && node --test --test-concurrency=2 \"test/*.test.js\"",
+    "test:integration": "npm run build && playwright test --project=integration"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
