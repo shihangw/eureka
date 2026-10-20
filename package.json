@@ -11,7 +11,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "npm run test:unit",
+    "test": "npm run test:unit && npm run test:integration && npm run test:e2e",
     "test:unit": "npm run build && node --test --test-concurrency=2 \"test/*.test.js\"",
     "test:integration": "npm run build && playwright test --project=integration",
     "test:e2e": "npm run build && playwright test --project=e2e"
@@ -29,7 +29,7 @@
     "typescript-eslint": "^8.72.0"
   },
   "engines": {
-    "node": ">=20.0.0",
+    "node": "^22.13.0 || >=24.0.0",
     "npm": ">=10.0.0"
   },
   "keywords": [
@@ -39,5 +39,5 @@
     "browser-extension"
   ],
   "author": "",
-  "license": "MIT"
+  "license": "Apache-2.0"
 }

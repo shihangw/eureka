@@ -9,15 +9,39 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         node-version: [22, 24]
+    env:
+      CI: true
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
       - run: npm ci
+      # Installs the Chromium build that matches the locked @playwright/test, plus its Linux libraries.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run typecheck
       - run: npm run lint
       - run: npm run format:check
+      - run: npm run build
       - run: npm test
+      - name: Upload built extension
+        if: ${{ !cancelled() && hashFiles('dist/manifest.json') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: eureka-dist-node${{ matrix.node-version }}
+          path: dist/
+          if-no-files-found: error
+      - name: Upload browser test diagnostics
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-diagnostics-node${{ matrix.node-version }}
+          path: |
+            test-results/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
