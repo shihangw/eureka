@@ -87,3 +87,13 @@ test('opens the options page when the options button is clicked', async () => {
   click(optionsButton);
   assert.equal(state.optionsPagesOpened, 1);
 });
+
+test('displays a question mark when the background reports bookmarks are unavailable', async () => {
+  const { countElement, context } = loadPopup({
+    respond: async () => ({ error: 'Bookmarks are unavailable' }),
+  });
+  await settle();
+
+  assert.equal(countElement.textContent, '?');
+  assert.ok(context.console.entries.some(([level]) => level === 'error'));
+});

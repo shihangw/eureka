@@ -17,8 +17,9 @@ const STYLES = ['yellow', 'underline', 'glow'];
  * @param {object} [options]
  * @param {Record<string, unknown>} [options.stored] Initial sync storage contents.
  * @param {Error} [options.setError] Makes storage.sync.set reject.
+ * @param {Error} [options.getError] Makes storage.sync.get reject.
  */
-function loadOptions({ stored = {}, setError } = {}) {
+function loadOptions({ stored = {}, setError, getError } = {}) {
   const state = { storageGets: [], storageSets: [], stored: { ...stored } };
   const radios = STYLES.map((style) => createRadio(style, style === 'yellow'));
   const status = createElement('p', { props: { textContent: '' } });
@@ -28,6 +29,9 @@ function loadOptions({ stored = {}, setError } = {}) {
       sync: {
         get: async (keys) => {
           state.storageGets.push(keys);
+          if (getError) {
+            throw getError;
+          }
           return keys in state.stored ? { [keys]: state.stored[keys] } : {};
         },
         set: async (items) => {
@@ -125,4 +129,24 @@ test('reports a failed save and logs the error', async () => {
 
   assert.equal(status.textContent, 'Could not save preference');
   assert.ok(context.console.entries.some(([level]) => level === 'error'));
+});
+
+test('still saves a chosen style after the initial read fails', async () => {
+  const { state, radio, status, context } = loadOptions({
+    getError: new Error('storage unavailable'),
+  });
+  await settle();
+
+  assert.equal(state.storageGets.length, 1);
+  assert.ok(context.console.entries.some(([level]) => level === 'error'));
+
+  radio('underline').dispatch('change');
+  await settle();
+
+  assert.deepEqual(plain(state.storageSets), [{ highlightStyle: 'underline' }]);
+  assert.equal(status.textContent, 'Saved');
+
+  const reopened = loadOptions({ stored: state.stored });
+  await settle();
+  assert.equal(reopened.radio('underline').checked, true);
 });

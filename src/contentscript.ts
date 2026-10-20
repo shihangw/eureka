@@ -3,7 +3,13 @@
  * Highlights links on the current page that the user has bookmarked.
  */
 
-import { readHighlightStyle, type LookupRequest, type LookupResponse } from './shared';
+import {
+  DEFAULT_HIGHLIGHT_STYLE,
+  readHighlightStyle,
+  responseError,
+  type LookupRequest,
+  type LookupResponse,
+} from './shared';
 
 /** Recursively finds all non-whitespace text nodes within a DOM subtree. */
 function getTextNodes(dom: Node): Text[] {
@@ -61,10 +67,17 @@ async function highlightBookmarks(): Promise<void> {
   }
 
   try {
-    const highlightStyle = await readHighlightStyle();
+    const highlightStyle = await readHighlightStyle().catch((error: unknown) => {
+      console.warn('Eureka: failed to read highlight style, using default:', error);
+      return DEFAULT_HIGHLIGHT_STYLE;
+    });
     const request: LookupRequest = { urls: [...urlElements.keys()] };
     const response = (await chrome.runtime.sendMessage(request)) as
       Partial<LookupResponse> | undefined;
+    const error = responseError(response);
+    if (error) {
+      throw new Error(error);
+    }
     const bookmarkedUrls = response?.bookmarkedUrls ?? [];
 
     console.log(`Eureka: highlighting ${bookmarkedUrls.length} of ${urlElements.size} links`);

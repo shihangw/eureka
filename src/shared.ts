@@ -22,6 +22,17 @@ export interface CountResponse {
   count: number;
 }
 
+/** Background reply when no bookmark snapshot could be loaded. */
+export interface ErrorResponse {
+  error: string;
+}
+
+/** Returns the reported error when a background reply is an {@link ErrorResponse}. */
+export function responseError(response: unknown): string | undefined {
+  const error = (response as Partial<ErrorResponse> | null | undefined)?.error;
+  return typeof error === 'string' ? error : undefined;
+}
+
 export function isLookupRequest(message: unknown): message is LookupRequest {
   return Array.isArray((message as Partial<LookupRequest> | null | undefined)?.urls);
 }

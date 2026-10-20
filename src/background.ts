@@ -7,17 +7,34 @@
  * there is no polling.
  */
 
-import { isCountRequest, isLookupRequest, type CountResponse, type LookupResponse } from './shared';
-
-/** URL of every bookmark in the browser. */
-let bookmarkUrls = new Set<string>();
+import {
+  isCountRequest,
+  isLookupRequest,
+  type CountResponse,
+  type ErrorResponse,
+  type LookupResponse,
+} from './shared';
 
 /**
- * Resolves once the current bookmark cache has finished loading. A freshly
- * woken service worker answers messages only after this resolves, so callers
- * never see a stale or empty cache.
+ * URL of every bookmark in the browser, from the newest successful load.
+ * `null` until a load has succeeded, so a failed load is never mistaken for
+ * an empty bookmark collection.
  */
-let cacheLoaded: Promise<void> = refreshBookmarkCache();
+let bookmarkUrls: Set<string> | null = null;
+
+/** Number of the most recently started refresh. */
+let latestGeneration = 0;
+
+/** Number of the refresh whose result `bookmarkUrls` holds. */
+let appliedGeneration = 0;
+
+/** Number of refreshes that have started but not finished. */
+let refreshesInFlight = 0;
+
+/** The most recently started refresh. Never rejects. */
+let latestRefresh: Promise<void> = Promise.resolve();
+
+void refreshBookmarkCache();
 
 /** Adds the URL of every bookmark in a bookmark subtree to the set. */
 function collectBookmarkUrls(
@@ -36,23 +53,56 @@ function collectBookmarkUrls(
 }
 
 /** Reloads the bookmark cache from the browser. */
-async function refreshBookmarkCache(): Promise<void> {
-  try {
-    const [root] = await chrome.bookmarks.getTree();
-    const urls = new Set<string>();
-    collectBookmarkUrls(urls, root);
-    bookmarkUrls = urls;
-    console.log(`Eureka: loaded ${bookmarkUrls.size} bookmark URLs`);
-  } catch (error) {
-    console.error('Eureka: failed to load bookmarks:', error);
-  }
+function refreshBookmarkCache(): Promise<void> {
+  const generation = ++latestGeneration;
+  refreshesInFlight += 1;
+
+  latestRefresh = (async () => {
+    try {
+      const [root] = await chrome.bookmarks.getTree();
+      // Reads can finish out of order; never let an older read replace a newer one.
+      if (generation < appliedGeneration) return;
+
+      const urls = new Set<string>();
+      collectBookmarkUrls(urls, root);
+      bookmarkUrls = urls;
+      appliedGeneration = generation;
+      console.log(`Eureka: loaded ${urls.size} bookmark URLs`);
+    } catch (error) {
+      console.error('Eureka: failed to load bookmarks:', error);
+    } finally {
+      refreshesInFlight -= 1;
+    }
+  })();
+  return latestRefresh;
 }
+
+/**
+ * Resolves with the newest bookmark URLs once every started refresh has
+ * settled, or `null` when no load has succeeded yet.
+ */
+async function currentBookmarkUrls(): Promise<Set<string> | null> {
+  // With no usable snapshot and nothing loading, retry so a failed load recovers.
+  if (bookmarkUrls === null && refreshesInFlight === 0) {
+    void refreshBookmarkCache();
+  }
+
+  let awaited: Promise<void>;
+  do {
+    awaited = latestRefresh;
+    await awaited;
+  } while (awaited !== latestRefresh);
+
+  return bookmarkUrls;
+}
+
+const UNAVAILABLE: ErrorResponse = { error: 'Bookmarks are unavailable' };
 
 chrome.runtime.onInstalled.addListener((details) => {
   console.log(
     `Eureka: extension ${details.reason} (previous version: ${details.previousVersion ?? 'none'})`
   );
-  cacheLoaded = refreshBookmarkCache();
+  void refreshBookmarkCache();
 });
 
 // Refresh the cache when bookmarks change instead of polling on a timer.
@@ -67,7 +117,7 @@ const bookmarkEvents: Array<{ addListener(callback: () => void): void }> = [
 
 for (const bookmarkEvent of bookmarkEvents) {
   bookmarkEvent.addListener(() => {
-    cacheLoaded = refreshBookmarkCache();
+    void refreshBookmarkCache();
   });
 }
 
@@ -77,10 +127,18 @@ for (const bookmarkEvent of bookmarkEvents) {
  * the asynchronous response.
  */
 chrome.runtime.onMessage.addListener(
-  (request: unknown, _sender, sendResponse: (response: LookupResponse | CountResponse) => void) => {
+  (
+    request: unknown,
+    _sender,
+    sendResponse: (response: LookupResponse | CountResponse | ErrorResponse) => void
+  ) => {
     if (isLookupRequest(request)) {
-      void cacheLoaded.then(() => {
-        const bookmarkedUrls = request.urls.filter((url) => bookmarkUrls.has(url));
+      void currentBookmarkUrls().then((urls) => {
+        if (!urls) {
+          sendResponse(UNAVAILABLE);
+          return;
+        }
+        const bookmarkedUrls = request.urls.filter((url) => urls.has(url));
         console.log(`Eureka: ${bookmarkedUrls.length}/${request.urls.length} links are bookmarked`);
         sendResponse({ bookmarkedUrls });
       });
@@ -88,8 +146,8 @@ chrome.runtime.onMessage.addListener(
     }
 
     if (isCountRequest(request)) {
-      void cacheLoaded.then(() => {
-        sendResponse({ count: bookmarkUrls.size });
+      void currentBookmarkUrls().then((urls) => {
+        sendResponse(urls ? { count: urls.size } : UNAVAILABLE);
       });
       return true;
     }
