@@ -1,6 +1,6 @@
 {
   "name": "__MSG_appName__",
-  "version": "0.0.3",
+  "version": "0.1.0",
   "manifest_version": 3,
   "description": "__MSG_appDescription__",
   "icons": {
@@ -16,16 +16,15 @@
       "19": "images/icon_19.png",
       "38": "images/icon_38.png"
     },
-    "default_title": "Eruka - Highlight Your Bookmarks",
+    "default_title": "__MSG_appName__",
     "default_popup": "popup.html"
   },
   "options_page": "options.html",
-  "permissions": ["bookmarks", "alarms"],
-  "host_permissions": ["http://*/*", "https://*/*"],
+  "permissions": ["bookmarks", "storage"],
   "content_scripts": [
     {
       "matches": ["http://*/*", "https://*/*"],
-      "css": ["styles/main.css"],
+      "css": ["styles/content.css"],
       "js": ["scripts/contentscript.js"],
       "run_at": "document_end",
       "all_frames": false

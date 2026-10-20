@@ -1,0 +1,19 @@
+/*
+ * Styles injected into every web page. The content script applies one of
+ * these classes to the span that wraps a bookmarked link's text.
+ */
+
+.eureka-highlight-yellow {
+  background-color: #fff23a;
+}
+
+.eureka-highlight-underline {
+  text-decoration: underline 2px #f9ab00;
+  text-underline-offset: 2px;
+}
+
+.eureka-highlight-glow {
+  background-color: rgba(255, 235, 59, 0.45);
+  border-radius: 2px;
+  box-shadow: 0 0 4px 2px rgba(255, 235, 59, 0.75);
+}

@@ -1,96 +1,96 @@
 /**
- * Content script for Eureka extension
- * Highlights bookmarked links on the current page
+ * Content script for Eureka.
+ * Highlights links on the current page that the user has bookmarked.
  */
 
-/**
- * Recursively finds all text nodes within a DOM element
- * @param {Node} dom - The DOM node to search
- * @returns {Text[]} Array of text nodes
- */
-function getTextNodes(dom) {
-  const textNodes = [];
-  const whitespace = /^\s*$/;
+(() => {
+  'use strict';
 
-  function traverse(node) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      if (!whitespace.test(node.nodeValue)) {
-        textNodes.push(node);
-      }
-    } else {
-      for (const child of node.childNodes) {
-        traverse(child);
-      }
-    }
-  }
+  /** Highlight style used when the user has not picked one yet. */
+  const DEFAULT_HIGHLIGHT_STYLE = 'yellow';
 
-  traverse(dom);
-  return textNodes;
-}
+  /**
+   * Recursively finds all non-whitespace text nodes within a DOM subtree.
+   * @param {Node} dom - The DOM node to search.
+   * @returns {Text[]} Array of text nodes.
+   */
+  function getTextNodes(dom) {
+    const textNodes = [];
+    const whitespace = /^\s*$/;
 
-/**
- * Highlights a DOM element by wrapping its text nodes
- * @param {HTMLElement} element - The element to highlight
- */
-function highlight(element) {
-  const textNodes = getTextNodes(element);
-
-  textNodes.forEach((textNode) => {
-    const span = document.createElement('span');
-    span.style.backgroundColor = 'yellow';
-
-    // Insert the span before the text node
-    textNode.parentNode.insertBefore(span, textNode);
-    // Move the text node into the span
-    span.appendChild(textNode);
-  });
-
-  console.log('Highlighted element with', textNodes.length, 'text nodes');
-}
-
-/**
- * Main function to find and highlight bookmarked links
- */
-async function highlightBookmarks() {
-  // Collect all links on the page (excluding anchor-only links)
-  const links = document.querySelectorAll('a:not([href^="#"])');
-  const urls = [];
-  const urlElementMap = new Map();
-
-  links.forEach((link) => {
-    const url = link.getAttribute('data-href') || link.href;
-    if (url) {
-      urls.push(url);
-      urlElementMap.set(url, link);
-    }
-  });
-
-  if (urls.length === 0) {
-    console.log('Eureka: No links found on page');
-    return;
-  }
-
-  console.log(`Eureka: Found ${urls.length} links, checking bookmarks...`);
-
-  // Send message to background script to check which URLs are bookmarked
-  try {
-    const response = await chrome.runtime.sendMessage({ urls });
-
-    if (response && response.bookmarkedUrls) {
-      const bookmarkedUrls = response.bookmarkedUrls;
-      console.log(`Eureka: Highlighting ${bookmarkedUrls.length} bookmarked links`);
-
-      bookmarkedUrls.forEach((url) => {
-        const element = urlElementMap.get(url);
-        if (element) {
-          highlight(element);
+    function traverse(node) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        if (!whitespace.test(node.nodeValue)) {
+          textNodes.push(node);
         }
-      });
+      } else {
+        for (const child of node.childNodes) {
+          traverse(child);
+        }
+      }
     }
-  } catch (error) {
-    console.error('Eureka: Error communicating with background script:', error);
-  }
-}
 
-// Run the highlighting when the script loads
-highlightBookmarks();
+    traverse(dom);
+    return textNodes;
+  }
+
+  /**
+   * Wraps every text node of an element in a span carrying the highlight style.
+   * @param {HTMLElement} element - The element to highlight.
+   * @param {string} style - Highlight style name, e.g. "yellow".
+   */
+  function highlight(element, style) {
+    for (const textNode of getTextNodes(element)) {
+      const span = document.createElement('span');
+      span.classList.add(`eureka-highlight-${style}`);
+
+      // Insert the span where the text node sits, then move the text into it.
+      textNode.parentNode.insertBefore(span, textNode);
+      span.appendChild(textNode);
+    }
+  }
+
+  /**
+   * Finds all links on the page and highlights the bookmarked ones.
+   */
+  async function highlightBookmarks() {
+    const links = document.querySelectorAll('a:not([href^="#"])');
+    const urlElements = new Map();
+
+    for (const link of links) {
+      const url = link.getAttribute('data-href') || link.href;
+      if (!url) continue;
+
+      const elements = urlElements.get(url);
+      if (elements) {
+        elements.push(link);
+      } else {
+        urlElements.set(url, [link]);
+      }
+    }
+
+    if (urlElements.size === 0) {
+      console.log('Eureka: no links found on page');
+      return;
+    }
+
+    try {
+      const { highlightStyle = DEFAULT_HIGHLIGHT_STYLE } =
+        await chrome.storage.sync.get('highlightStyle');
+      const response = await chrome.runtime.sendMessage({ urls: [...urlElements.keys()] });
+      const bookmarkedUrls = response?.bookmarkedUrls ?? [];
+
+      console.log(`Eureka: highlighting ${bookmarkedUrls.length} of ${urlElements.size} links`);
+
+      for (const url of bookmarkedUrls) {
+        for (const element of urlElements.get(url) ?? []) {
+          highlight(element, highlightStyle);
+        }
+      }
+    } catch (error) {
+      console.error('Eureka: failed to highlight bookmarked links:', error);
+    }
+  }
+
+  highlightBookmarks();
+})();

@@ -1,16 +1,15 @@
 # Dependencies
 node_modules
-bower_components
 
 # Build outputs
 dist
 build
 
-# Vendor files
-app/scripts/vendor
+# Lockfiles (machine-managed)
+package-lock.json
 
-# Test files
-test/bower_components
+# Legal text (kept verbatim)
+LICENSE.md
 
 # Git
 .git
