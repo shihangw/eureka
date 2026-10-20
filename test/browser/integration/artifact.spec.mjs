@@ -1,6 +1,7 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import {
+  collectProblems,
   DIST_DIR,
   expect,
   highlightedIds,
@@ -114,16 +115,7 @@ test('dist contains exactly the complete extension with baseline scope', async (
 test('Chromium loads the worker, pages, styles, icons, locale and content script from dist', async ({
   extension,
 }) => {
-  const problems = [];
-  const track = (page) => {
-    page.on('pageerror', (error) => problems.push(`${page.url()} pageerror: ${error.message}`));
-    page.on('requestfailed', (request) => problems.push(`request failed: ${request.url()}`));
-    page.on('console', (message) => {
-      if (message.type() === 'error') problems.push(`${page.url()} console: ${message.text()}`);
-    });
-  };
-  extension.context.on('page', track);
-  extension.context.pages().forEach(track);
+  const problems = collectProblems(extension.context);
 
   expect(extension.worker.url()).toBe(extension.extensionUrl('scripts/background.js'));
 

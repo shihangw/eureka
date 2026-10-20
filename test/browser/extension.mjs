@@ -90,14 +90,18 @@ export async function expectBookmarkState(api, { candidates, bookmarked, count }
 }
 
 /**
- * Loads the fixture page in a fresh navigation, waits for the content script
- * to finish, and returns the highlight span classes inside each fixture anchor.
+ * Loads a fixture page in a fresh navigation and waits for the content script
+ * to finish. Returns its console summary and the highlight span classes inside
+ * each anchor of the integration fixture (or of `ids` for another page).
  */
-export async function loadFixture(page) {
+export async function loadFixture(
+  page,
+  { url = FIXTURE_URL, ids = [...Object.keys(FIXTURE_ANCHORS), 'fragment'] } = {}
+) {
   const finished = page.waitForEvent('console', (message) =>
     /^Eureka: (highlighting \d+ of \d+ links|failed to highlight)/.test(message.text())
   );
-  await page.goto(FIXTURE_URL);
+  await page.goto(url);
   const message = await finished;
   const anchors = await page.evaluate(
     (ids) =>
@@ -109,11 +113,73 @@ export async function loadFixture(page) {
           ),
         ])
       ),
-    [...Object.keys(FIXTURE_ANCHORS), 'fragment']
+    ids
   );
   return { message: message.text(), anchors };
 }
 
+/**
+ * Opens a fresh popup document and waits until it has replaced the pending
+ * count placeholder with the worker's reply.
+ */
+export async function openPopup(extension) {
+  const popup = await extension.context.newPage();
+  await popup.goto(extension.extensionUrl('popup.html'));
+  await expect(popup.locator('#bookmark-count')).not.toHaveText('…');
+  return popup;
+}
+
+/**
+ * Reopens the popup until it shows the expected count. Bookmark events refresh
+ * the worker's cache asynchronously, so each attempt is a new popup document.
+ */
+export async function expectPopupCount(extension, expected) {
+  await expect
+    .poll(async () => {
+      const popup = await openPopup(extension);
+      try {
+        return await popup.locator('#bookmark-count').textContent();
+      } finally {
+        await popup.close();
+      }
+    })
+    .toBe(String(expected));
+}
+
+/**
+ * Opens the popup, clicks its real "Highlight style…" button and returns the
+ * options page that `chrome.runtime.openOptionsPage()` opened.
+ */
+export async function openOptionsFromPopup(extension) {
+  const popup = await openPopup(extension);
+  const optionsUrl = extension.extensionUrl('options.html');
+  const opened = extension.context.waitForEvent('page', {
+    predicate: (page) => page !== popup,
+  });
+  await popup.locator('#open-options').click();
+  const options = await opened;
+  await options.waitForURL(optionsUrl);
+  await options.waitForLoadState('load');
+  return { popup, options };
+}
+
+/**
+ * Records page errors, failed requests and console errors from every current
+ * and future page of the context.
+ */
+export function collectProblems(context) {
+  const problems = [];
+  const track = (page) => {
+    page.on('pageerror', (error) => problems.push(`${page.url()} pageerror: ${error.message}`));
+    page.on('requestfailed', (request) => problems.push(`request failed: ${request.url()}`));
+    page.on('console', (message) => {
+      if (message.type() === 'error') problems.push(`${page.url()} console: ${message.text()}`);
+    });
+  };
+  context.on('page', track);
+  context.pages().forEach(track);
+  return problems;
+}
 /** Returns the anchor IDs whose text was wrapped in highlight spans. */
 export function highlightedIds(anchors) {
   return Object.keys(anchors)

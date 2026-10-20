@@ -11,7 +11,10 @@ export default defineConfig({
   timeout: 60_000,
   expect: { timeout: 10_000 },
   reporter: process.env.CI ? [['list'], ['html', { open: 'never' }]] : 'list',
-  projects: [{ name: 'integration', testMatch: 'integration/**/*.spec.mjs' }],
+  projects: [
+    { name: 'integration', testMatch: 'integration/**/*.spec.mjs' },
+    { name: 'e2e', testMatch: 'e2e/**/*.spec.mjs' },
+  ],
   webServer: {
     command: 'node test/browser/server.mjs --host=127.0.0.1 --port=4310',
     url: 'http://127.0.0.1:4310/health',

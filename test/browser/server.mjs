@@ -6,6 +6,7 @@
  */
 import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
+import { e2ePageHtml } from './pages.mjs';
 
 export const FIXTURE_HOST = '127.0.0.1';
 export const FIXTURE_PORT = 4310;
@@ -103,6 +104,8 @@ function handle(request, response) {
     response.end();
   } else if (pathname === '/' || pathname === FIXTURE_PATH) {
     send(response, 200, 'text/html; charset=utf-8', FIXTURE_HTML);
+  } else if (e2ePageHtml(pathname, FIXTURE_ORIGIN) !== undefined) {
+    send(response, 200, 'text/html; charset=utf-8', e2ePageHtml(pathname, FIXTURE_ORIGIN));
   } else if (/^\/targets\/[a-z-]+$/.test(pathname)) {
     send(response, 200, 'text/html; charset=utf-8', targetHtml(pathname.slice(9)));
   } else {
