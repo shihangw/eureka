@@ -297,42 +297,39 @@ test('waits for the initial bookmark load before answering', async () => {
   assert.deepEqual(pendingCount.response, { count: 1 });
 });
 
-for (const order of [
-  ['newest first', [2, 1]],
-  ['oldest first', [1, 2]],
-]) {
-  test(`settles on the newest bookmark state when refreshes complete ${order[0]}`, async () => {
-    const { chrome, reads } = loadControlledBackground();
-    reads[0].resolve(treeOf('https://a.example/'));
-    await settle();
+test('settles on the newest bookmark state when bookmarks change during a refresh', async () => {
+  const { chrome, reads } = loadControlledBackground();
+  reads[0].resolve(treeOf('https://a.example/'));
+  await settle();
 
-    chrome.bookmarks.onCreated.emit('b', {});
-    const duringFirstRefresh = lookup(chrome);
-    chrome.bookmarks.onChanged.emit('c', {});
-    const duringSecondRefresh = count(chrome);
-    assert.equal(reads.length, 3);
+  chrome.bookmarks.onCreated.emit('b', {});
+  const duringFirstRefresh = lookup(chrome);
+  chrome.bookmarks.onChanged.emit('c', {});
+  const duringSecondRefresh = count(chrome);
+  await settle();
 
-    const snapshots = {
-      1: treeOf('https://a.example/', 'https://b.example/'),
-      2: treeOf('https://a.example/', 'https://b.example/', 'https://c.example/'),
-    };
-    for (const index of order[1]) {
-      reads[index].resolve(snapshots[index]);
-      await settle();
-    }
+  // The read in flight predates the second change, so it must not be final.
+  reads[1].resolve(treeOf('https://a.example/', 'https://b.example/'));
+  await settle();
+  assert.equal(duringFirstRefresh.responded, false);
+  assert.equal(duringSecondRefresh.responded, false);
+  assert.equal(reads.length, 3);
 
-    const latest = {
-      bookmarkedUrls: ['https://a.example/', 'https://b.example/', 'https://c.example/'],
-    };
-    assert.deepEqual(duringFirstRefresh.response, latest);
-    assert.deepEqual(duringSecondRefresh.response, { count: 3 });
-    const afterLookup = lookup(chrome);
-    const afterCount = count(chrome);
-    await settle();
-    assert.deepEqual(afterLookup.response, latest);
-    assert.deepEqual(afterCount.response, { count: 3 });
-  });
-}
+  reads[2].resolve(treeOf('https://a.example/', 'https://b.example/', 'https://c.example/'));
+  await settle();
+
+  const latest = {
+    bookmarkedUrls: ['https://a.example/', 'https://b.example/', 'https://c.example/'],
+  };
+  assert.deepEqual(duringFirstRefresh.response, latest);
+  assert.deepEqual(duringSecondRefresh.response, { count: 3 });
+  const afterLookup = lookup(chrome);
+  const afterCount = count(chrome);
+  await settle();
+  assert.deepEqual(afterLookup.response, latest);
+  assert.deepEqual(afterCount.response, { count: 3 });
+  assert.equal(reads.length, 3);
+});
 
 test('reports a handled failure, not empty results, when the initial load fails', async (t) => {
   const unhandled = trackUnhandledRejections(t);
@@ -419,5 +416,90 @@ test('a failed refresh keeps the last good snapshot until a later refresh succee
   await settle();
   assert.deepEqual(afterRecoveryLookup.response, { bookmarkedUrls: ['https://c.example/'] });
   assert.deepEqual(afterRecoveryCount.response, { count: 1 });
+  assert.deepEqual(unhandled, []);
+});
+
+test('waits for a pending initial load when a newer refresh fails first', async (t) => {
+  const unhandled = trackUnhandledRejections(t);
+  const { chrome, reads } = loadControlledBackground();
+  chrome.bookmarks.onCreated.emit('b', {});
+  const pendingLookup = lookup(chrome);
+  const pendingCount = count(chrome);
+  await settle();
+
+  // Where the newer refresh is allowed to overlap the initial load, fail it first.
+  reads[1]?.reject(new Error('bookmarks unavailable'));
+  await settle();
+  assert.equal(pendingLookup.responded, false, JSON.stringify(pendingLookup.response));
+  assert.equal(pendingCount.responded, false, JSON.stringify(pendingCount.response));
+
+  reads[0].resolve(treeOf('https://a.example/', 'https://b.example/', 'https://a.example/'));
+  await settle();
+  // A refresh serialized behind the initial load starts only now; fail it too.
+  reads[1]?.reject(new Error('bookmarks unavailable'));
+  await settle();
+
+  assert.deepEqual(pendingLookup.response, {
+    bookmarkedUrls: ['https://a.example/', 'https://b.example/'],
+  });
+  assert.deepEqual(pendingCount.response, { count: 2 });
+  assert.equal(reads.length, 2);
+
+  const laterCount = count(chrome);
+  await settle();
+  assert.deepEqual(laterCount.response, { count: 2 });
+  assert.deepEqual(unhandled, []);
+});
+
+test('coalesces a burst of bookmark events into one follow-up read', async (t) => {
+  const unhandled = trackUnhandledRejections(t);
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const reads = [];
+  const { chrome } = createChrome({
+    getTree: () => {
+      const read = deferred();
+      reads.push(read);
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      return read.promise.finally(() => {
+        inFlight -= 1;
+      });
+    },
+  });
+  loadScript('../../dist/scripts/background.js', { chrome });
+
+  const urls = [
+    'https://a.example/',
+    'https://b.example/',
+    'https://c.example/',
+    'https://d.example/',
+  ];
+  const duringBurst = send(chrome, { urls });
+  chrome.bookmarks.onCreated.emit('c', {});
+  chrome.bookmarks.onChanged.emit('a', {});
+  chrome.bookmarks.onRemoved.emit('b', {});
+  chrome.bookmarks.onCreated.emit('c', {});
+  await settle();
+  assert.equal(reads.length, 1);
+
+  reads[0].resolve(treeOf('https://a.example/', 'https://b.example/'));
+  await settle();
+  assert.equal(duringBurst.responded, false);
+  assert.equal(reads.length, 2);
+
+  reads[1].resolve(treeOf('https://a.example/', 'https://c.example/'));
+  await settle();
+
+  const newest = { bookmarkedUrls: ['https://a.example/', 'https://c.example/'] };
+  assert.deepEqual(duringBurst.response, newest);
+  const afterLookup = send(chrome, { urls });
+  const afterCount = count(chrome);
+  await settle();
+  assert.deepEqual(afterLookup.response, newest);
+  assert.deepEqual(afterCount.response, { count: 2 });
+  assert.equal(reads.length, 2);
+  assert.equal(maxInFlight, 1);
+  assert.equal(inFlight, 0);
   assert.deepEqual(unhandled, []);
 });

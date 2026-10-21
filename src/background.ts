@@ -22,17 +22,14 @@ import {
  */
 let bookmarkUrls: Set<string> | null = null;
 
-/** Number of the most recently started refresh. */
-let latestGeneration = 0;
+/**
+ * The running refresh, including any follow-up reads queued while it ran, or
+ * `null` when idle. Never rejects.
+ */
+let refreshing: Promise<void> | null = null;
 
-/** Number of the refresh whose result `bookmarkUrls` holds. */
-let appliedGeneration = 0;
-
-/** Number of refreshes that have started but not finished. */
-let refreshesInFlight = 0;
-
-/** The most recently started refresh. Never rejects. */
-let latestRefresh: Promise<void> = Promise.resolve();
+/** Whether bookmarks may have changed since the in-flight read started. */
+let refreshQueued = false;
 
 void refreshBookmarkCache();
 
@@ -52,47 +49,55 @@ function collectBookmarkUrls(
   }
 }
 
-/** Reloads the bookmark cache from the browser. */
-function refreshBookmarkCache(): Promise<void> {
-  const generation = ++latestGeneration;
-  refreshesInFlight += 1;
-
-  latestRefresh = (async () => {
-    try {
-      const [root] = await chrome.bookmarks.getTree();
-      // Reads can finish out of order; never let an older read replace a newer one.
-      if (generation < appliedGeneration) return;
-
-      const urls = new Set<string>();
-      collectBookmarkUrls(urls, root);
-      bookmarkUrls = urls;
-      appliedGeneration = generation;
-      console.log(`Eureka: loaded ${urls.size} bookmark URLs`);
-    } catch (error) {
-      console.error('Eureka: failed to load bookmarks:', error);
-    } finally {
-      refreshesInFlight -= 1;
-    }
-  })();
-  return latestRefresh;
+/** Reads the full bookmark tree once and replaces the cache on success. */
+async function loadBookmarkUrls(): Promise<void> {
+  try {
+    const [root] = await chrome.bookmarks.getTree();
+    const urls = new Set<string>();
+    collectBookmarkUrls(urls, root);
+    bookmarkUrls = urls;
+    console.log(`Eureka: loaded ${urls.size} bookmark URLs`);
+  } catch (error) {
+    console.error('Eureka: failed to load bookmarks:', error);
+  }
 }
 
 /**
- * Resolves with the newest bookmark URLs once every started refresh has
+ * Reloads the bookmark cache from the browser. Only one full-tree read runs
+ * at a time: refreshes requested while one is in flight are merged into a single
+ * follow-up read, so a burst of bookmark events cannot pile up reads and the
+ * last read to finish always reflects the newest bookmarks.
+ */
+function refreshBookmarkCache(): Promise<void> {
+  if (refreshing) {
+    refreshQueued = true;
+    return refreshing;
+  }
+
+  refreshing = (async () => {
+    try {
+      do {
+        refreshQueued = false;
+        await loadBookmarkUrls();
+      } while (refreshQueued);
+    } finally {
+      refreshing = null;
+    }
+  })();
+  return refreshing;
+}
+
+/**
+ * Resolves with the newest bookmark URLs once any running refresh has
  * settled, or `null` when no load has succeeded yet.
  */
 async function currentBookmarkUrls(): Promise<Set<string> | null> {
-  // With no usable snapshot and nothing loading, retry so a failed load recovers.
-  if (bookmarkUrls === null && refreshesInFlight === 0) {
-    void refreshBookmarkCache();
+  if (refreshing) {
+    await refreshing;
+  } else if (bookmarkUrls === null) {
+    // With no usable snapshot and nothing loading, retry so a failed load recovers.
+    await refreshBookmarkCache();
   }
-
-  let awaited: Promise<void>;
-  do {
-    awaited = latestRefresh;
-    await awaited;
-  } while (awaited !== latestRefresh);
-
   return bookmarkUrls;
 }
 
