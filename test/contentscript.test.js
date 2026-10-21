@@ -16,8 +16,17 @@ const plain = (value) => JSON.parse(JSON.stringify(value));
  * @param {string[]} [options.bookmarkedUrls] URLs the background reports.
  * @param {string} [options.highlightStyle] Style stored in sync storage.
  * @param {Error} [options.sendMessageError] Makes sendMessage reject.
+ * @param {Error} [options.storageGetError] Makes storage.sync.get reject.
+ * @param {object} [options.response] Replaces the background response.
  */
-function loadContent({ links, bookmarkedUrls = [], highlightStyle, sendMessageError } = {}) {
+function loadContent({
+  links,
+  bookmarkedUrls = [],
+  highlightStyle,
+  sendMessageError,
+  storageGetError,
+  response,
+} = {}) {
   const state = {
     storageGets: [],
     sentMessages: [],
@@ -28,6 +37,9 @@ function loadContent({ links, bookmarkedUrls = [], highlightStyle, sendMessageEr
       sync: {
         get: async (keys) => {
           state.storageGets.push(keys);
+          if (storageGetError) {
+            throw storageGetError;
+          }
           return highlightStyle === undefined ? {} : { highlightStyle };
         },
       },
@@ -38,13 +50,13 @@ function loadContent({ links, bookmarkedUrls = [], highlightStyle, sendMessageEr
         if (sendMessageError) {
           throw sendMessageError;
         }
-        return { bookmarkedUrls };
+        return response ?? { bookmarkedUrls };
       },
     },
   };
 
   const document = createDocument({ links });
-  const context = loadScript('../../app/scripts/contentscript.js', {
+  const context = loadScript('../../dist/scripts/contentscript.js', {
     chrome,
     document,
     ...NodeConstants,
@@ -149,4 +161,66 @@ test('survives a messaging failure without breaking the page', async () => {
   assert.equal(document.createdElements.length, 0);
   assert.equal(link.childNodes.length, 1);
   assert.ok(context.console.entries.some(([level]) => level === 'error'));
+});
+
+test('highlights in the default yellow when the stored style cannot be read', async () => {
+  const first = createLink('https://github.com/', 'GitHub');
+  const second = createLink('https://github.com/', 'GitHub again');
+  const control = createLink('https://plain.example/', 'Plain');
+  const { document, state } = loadContent({
+    links: [first, second, control],
+    bookmarkedUrls: ['https://github.com/'],
+    storageGetError: new Error('storage unavailable'),
+  });
+  await settle();
+
+  assert.equal(state.storageGets.length, 1);
+  assert.equal(document.createdElements.length, 2);
+  for (const span of document.createdElements) {
+    assert.deepEqual(span.classes, ['eureka-highlight-yellow']);
+  }
+  assert.equal(first.childNodes[0], document.createdElements[0]);
+  assert.equal(second.childNodes[0], document.createdElements[1]);
+  assert.equal(control.childNodes.length, 1);
+  assert.equal(control.childNodes[0].nodeValue, 'Plain');
+});
+
+test('leaves the page unchanged when the background reports bookmarks are unavailable', async (t) => {
+  const unhandled = [];
+  const onRejection = (reason) => unhandled.push(reason);
+  process.on('unhandledRejection', onRejection);
+  t.after(() => process.off('unhandledRejection', onRejection));
+
+  const link = createLink('https://github.com/', 'GitHub');
+  const { document, context } = loadContent({
+    links: [link],
+    response: { error: 'Bookmarks are unavailable' },
+  });
+  await settle();
+
+  assert.equal(document.createdElements.length, 0);
+  assert.equal(link.childNodes.length, 1);
+  assert.equal(link.childNodes[0].nodeValue, 'GitHub');
+  assert.equal(link.href, 'https://github.com/');
+  assert.ok(context.console.entries.some(([level]) => level === 'error'));
+  assert.deepEqual(unhandled, []);
+});
+
+test('a rejected bookmark message is handled without an unhandled rejection', async (t) => {
+  const unhandled = [];
+  const onRejection = (reason) => unhandled.push(reason);
+  process.on('unhandledRejection', onRejection);
+  t.after(() => process.off('unhandledRejection', onRejection));
+
+  const link = createLink('https://github.com/', 'GitHub');
+  const { document } = loadContent({
+    links: [link],
+    sendMessageError: new Error('Extension context invalidated'),
+  });
+  await settle();
+
+  assert.equal(document.createdElements.length, 0);
+  assert.equal(link.childNodes[0].nodeValue, 'GitHub');
+  assert.equal(link.href, 'https://github.com/');
+  assert.deepEqual(unhandled, []);
 });
